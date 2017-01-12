@@ -3,18 +3,22 @@ import numpy as np
 import json
 import scipy as sc
 import scipy.io as sio
+import os
+from itertools import chain
+from warnings import warn
+
 def sigmo(x):
     #nonlinear neuron function. 
     return 2./(1 + np.exp(-2 * x)) - 1
 
-def NNoutput(Ati, q, tite, smag, net):
+def NNoutput(Ati, qx, Ti_Te, smag, net):
     max_qlk = net['max_qlk']
     min_qlk = net['min_qlk']
     prepros = net['prepros']
     #initialize input matrix in order expected by the trained network. 
-    invec = np.vstack([q, smag, tite, Ati])
+    invec = np.vstack([qx, smag, Ti_Te, Ati])
 
-    #find size of input vector (if Ati, q, tite, shear are not same length, the function will crash)
+    #find size of input vector (if Ati, q, Ti_Te, shear are not same length, the function will crash)
     npoints = len(Ati)
 
     #Normalize input matrix to match NN input normalization
@@ -48,8 +52,7 @@ def net_to_dict(net):
     return netdict
 
 class QuaLiKiz4DNN():
-    validity_range = {'Ane':    (2, 2),
-                      'Zeffx':  (1, 1),
+    validity_range = {'Zeffx':  (1, 1),
                       'An':     (2, 2),
                       'Ate':    (6, 6),
                       'Ati':    (2, 12),
@@ -74,17 +77,27 @@ class QuaLiKiz4DNN():
         self.zerooutpinch = zerooutpinch
         netnames = ['netief', 'neteef', 'netdfe', 'netvte', 'netvce']
         self.nets = {}
+        root = os.path.dirname(os.path.realpath(__file__))
         for name in netnames:
-            with open('4D-NN-' + name + '.json') as file:
+            with open(os.path.join(root, '4D-NN-' + name + '.json')) as file:
                 json_dict = json.load(file)
             self.nets[name] = {key: np.array(val) for key, val in json_dict.items()}
 
-    def get_fluxes(self, Ati, q, smag, tite):
-        chii = NNoutput(Ati, q, tite, smag, self.nets['netief'])
-        chie = NNoutput(Ati, q, tite, smag, self.nets['neteef'])
-        D    = NNoutput(Ati, q, tite, smag, self.nets['netdfe'])
-        Vt   = NNoutput(Ati, q, tite, smag, self.nets['netvte'])
-        Vc   = NNoutput(Ati, q, tite, smag, self.nets['netvce'])
+    def get_fluxes(self, Ati=[], qx=[], smag=[], Ti_Te=[], **kwargs):
+        for name in kwargs:
+            if (np.any(np.less(kwargs[name], self.validity_range[name][0])) or
+                np.any(np.greater(kwargs[name] > self.validity_range[name][1]))):
+                warn('Using NN out of bounds!')
+        for value, name in zip([Ati, qx, Ti_Te, smag], ['Ati', 'qx', 'smag', 'Ti_Te']):
+            if (np.any(np.less(value, self.validity_range[name][0])) or
+                np.any(np.greater(value, self.validity_range[name][1]))):
+                warn('Using NN out of bounds!')
+
+        chii = NNoutput(Ati, qx, Ti_Te, smag, self.nets['netief'])
+        chie = NNoutput(Ati, qx, Ti_Te, smag, self.nets['neteef'])
+        D    = NNoutput(Ati, qx, Ti_Te, smag, self.nets['netdfe'])
+        Vt   = NNoutput(Ati, qx, Ti_Te, smag, self.nets['netvte'])
+        Vc   = NNoutput(Ati, qx, Ti_Te, smag, self.nets['netvce'])
 
         te = 8.
         ne = 5.
@@ -100,7 +113,7 @@ class QuaLiKiz4DNN():
         x = .5
         a = 1.
         zeff = 1.
-        c1 = (6.9224e-5 * zeff * ne * q * Ro * (Rmin * x / Ro) ** -1.5)
+        c1 = (6.9224e-5 * zeff * ne * qx * Ro * (Rmin * x / Ro) ** -1.5)
         c2 = 15.2 - 0.5 * np.log(0.1 * ne)
         Nustar = c1 / te ** 2 * (c2 + np.log(te))
         
@@ -132,23 +145,24 @@ class QuaLiKiz4DNN():
         V[filter]=0;
         
         dndr = -Ane/r0*(ne*1e19);
-        dtidr = -Ati/r0*(te*tite*1e3*qel);
+        dtidr = -Ati/r0*(te*Ti_Te*1e3*qel);
         dtedr = -Ate/r0*(te*1e3*qel);
         
-        qe_GB = -chie/chifac*dtedr/(te*1e3*qel/r0);
-        qi_GB = -chii/chifac*dtidr/(te*tite*1e3*qel/r0);
-        pfe_GB = (-D*dndr+V*ne*1e19)/chifac/(ne*1e19/r0);
+        mistake_factor = 1.3
+        qe_GB = mistake_factor * -chie/chifac*dtedr/(te*1e3*qel/r0);
+        qi_GB = mistake_factor * -chii/chifac*dtidr/(te*Ti_Te*1e3*qel/r0);
+        pfe_GB = mistake_factor * (-D*dndr+V*ne*1e19)/chifac/(ne*1e19/r0);
 
         return np.squeeze(qe_GB), np.squeeze(qi_GB), np.squeeze(pfe_GB)
 
 if __name__ == '__main__':
     scann = 24
     Ati = np.array(np.linspace(2,13, scann))
-    q = np.full_like(Ati, 2.)
+    qx = np.full_like(Ati, 2.)
     smag = np.full_like(Ati, 1.)
-    tite = np.full_like(Ati, 1.)
+    Ti_Te = np.full_like(Ati, 1.)
     nn = QuaLiKiz4DNN()
-    nn.get_fluxes(Ati, q, smag, tite)
+    fluxes = nn.get_fluxes(Ati, qx, smag, Ti_Te, Ate=[5])
     
     embed()
 
