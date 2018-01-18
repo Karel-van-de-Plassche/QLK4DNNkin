@@ -22,8 +22,8 @@ def NNoutput(Ati, qx, Ti_Te, smag, net):
     npoints = len(Ati)
 
     #Normalize input matrix to match NN input normalization
-    scalefac = np.array([2 , 1.45 , 1.35 , 5], ndmin=2).T
-    dispfac  = np.array([3 , 1.55 , 1.65 , 7], ndmin=2).T
+    scalefac = QuaLiKiz4DNN.scalefac
+    dispfac  = QuaLiKiz4DNN.dispfac
 
     #normalize input vector to match input normalization in NN
     unorm = np.multiply(np.add(invec, -dispfac), 1./scalefac)
@@ -61,6 +61,9 @@ class QuaLiKiz4DNN():
                       'qx':     (1, 5),
                       'smag':   (.1, 3),
                       'x':      (.5, .5)}
+    scalefac = np.array([2 , 1.45 , 1.35 , 5], ndmin=2).T
+    dispfac  = np.array([3 , 1.55 , 1.65 , 7], ndmin=2).T
+    feature_names = ['qx', 'smag', 'Ti_Te', 'Ati']
 
     def __init__(self, whenzero=1, zerooutpinch=0):
         """
@@ -104,7 +107,7 @@ class QuaLiKiz4DNN():
         ni = 5.
         Ate = 6.
         Ane = 2.
-        
+
         Amain = 2.
         b0 = 3.
         r0 = 3.
@@ -116,17 +119,17 @@ class QuaLiKiz4DNN():
         c1 = (6.9224e-5 * zeff * ne * qx * Ro * (Rmin * x / Ro) ** -1.5)
         c2 = 15.2 - 0.5 * np.log(0.1 * ne)
         Nustar = c1 / te ** 2 * (c2 + np.log(te))
-        
+
         qel=1.6e-19;
         chifac = (te*1e3*qel)**1.5*np.sqrt(Amain*1.67e-27)/(qel**2*b0**2.*a)
         # This kinetic electron 4D NN was (mistakingly) fit to unnormalized D and V. We must normalize back to GB using the
         # Te, B0, and a values used when constructing the NN database, and then unnormalize again using
         # the simulation values
-        
+
         # NN training set values: 
         #Te = 8 keV , a = 1 m, B0 = 3 T, Amain = 2, n = 5e19 [m^-3], R/Ln=2, R/LTe=6, x=0.5, Zeff=1
         chifacNN = (8e3*qel)**1.5*np.sqrt(2*1.67e-27)/(qel**2.*3**2.*1);
-        
+
         chii=(chifac*chii); #convert to SI
         chie=(chifac*chie); #convert to SI
         D=D * chifac/chifacNN; #convert from SI to GB with NN units, then to SI with simulation units
@@ -143,11 +146,11 @@ class QuaLiKiz4DNN():
         chie[filter]=0;
         D[filter]=0;
         V[filter]=0;
-        
+
         dndr = -Ane/r0*(ne*1e19);
         dtidr = -Ati/r0*(te*Ti_Te*1e3*qel);
         dtedr = -Ate/r0*(te*1e3*qel);
-        
+
         mistake_factor = 1.3
         qe_GB = mistake_factor * -chie/chifac*dtedr/(te*1e3*qel/r0);
         qi_GB = mistake_factor * -chii/chifac*dtidr/(te*Ti_Te*1e3*qel/r0);
@@ -163,6 +166,6 @@ if __name__ == '__main__':
     Ti_Te = np.full_like(Ati, 1.)
     nn = QuaLiKiz4DNN()
     fluxes = nn.get_fluxes(Ati, qx, smag, Ti_Te, Ate=[5])
-    
+
     embed()
 
