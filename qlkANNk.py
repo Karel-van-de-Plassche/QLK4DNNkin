@@ -1,11 +1,14 @@
-from IPython import embed
-import numpy as np
-import json
-import scipy as sc
-import scipy.io as sio
 import os
 from itertools import chain
 from warnings import warn
+import json
+
+import numpy as np
+import scipy as sc
+import scipy.io as sio
+import matplotlib.pyplot as plt
+from IPython import embed
+import pandas as pd
 
 def sigmo(x):
     #nonlinear neuron function. 
@@ -78,13 +81,24 @@ class QuaLiKiz4DNN():
         """
         self.whenzero = whenzero
         self.zerooutpinch = zerooutpinch
-        netnames = ['netief', 'neteef', 'netdfe', 'netvte', 'netvce']
+        netnames = ['ief', 'eef', 'dfe', 'vte', 'vce']
+        matdict = sio.loadmat('RAPTOR/qlkANN4Dkin.mat')
         self.nets = {}
-        root = os.path.dirname(os.path.realpath(__file__))
-        for name in netnames:
-            with open(os.path.join(root, '4D-NN-' + name + '.json')) as file:
-                json_dict = json.load(file)
-            self.nets[name] = {key: np.array(val) for key, val in json_dict.items()}
+        netarray = matdict['net'][0,0]
+        for ii, (fieldname, type) in enumerate(netarray.dtype.descr):
+            split = fieldname.split('_')
+            if len(split) >= 2:
+                var = '_'.join(split[:-1])
+                netname = 'net' + split[-1]
+                if netname not in self.nets:
+                    self.nets[netname] = {}
+                self.nets[netname][var] = netarray[ii]
+        #self.nets = {}
+        #root = os.path.dirname(os.path.realpath(__file__))
+        #for name in netnames:
+        #    with open(os.path.join(root, '4D-NN-' + name + '.json')) as file:
+        #        json_dict = json.load(file)
+        #    self.nets[name] = {key: np.array(val) for key, val in json_dict.items()}
 
     def get_fluxes(self, Ati=[], qx=[], smag=[], Ti_Te=[], **kwargs):
         for name in kwargs:
@@ -151,7 +165,7 @@ class QuaLiKiz4DNN():
         dtidr = -Ati/r0*(te*Ti_Te*1e3*qel);
         dtedr = -Ate/r0*(te*1e3*qel);
 
-        mistake_factor = 1.3
+        mistake_factor = 1
         qe_GB = mistake_factor * -chie/chifac*dtedr/(te*1e3*qel/r0);
         qi_GB = mistake_factor * -chii/chifac*dtidr/(te*Ti_Te*1e3*qel/r0);
         pfe_GB = mistake_factor * (-D*dndr+V*ne*1e19)/chifac/(ne*1e19/r0);
@@ -160,12 +174,26 @@ class QuaLiKiz4DNN():
 
 if __name__ == '__main__':
     scann = 24
-    Ati = np.array(np.linspace(2,13, scann))
-    qx = np.full_like(Ati, 2.)
-    smag = np.full_like(Ati, 1.)
-    Ti_Te = np.full_like(Ati, 1.)
+    input = pd.DataFrame()
+    input['Ati'] = np.array(np.linspace(2,13, scann))
+    input['q'] = 2
+    input['smag'] = 1
+    input['Ti_Te'] = 1
     nn = QuaLiKiz4DNN()
-    fluxes = nn.get_fluxes(Ati, qx, smag, Ti_Te, Ate=[5])
-
-    embed()
+    fluxes = nn.get_fluxes(input['Ati'].values,
+                           input['q'].values,
+                           input['smag'].values,
+                           input['Ti_Te'].values, Ate=[5])
+    output = pd.DataFrame({'qe_GB': fluxes[0],
+                           'qi_GB': fluxes[1],
+                           'pfe_GB': fluxes[2]})
+    df = input.join(output)
+    f, (ax1, ax2) = plt.subplots(1, 2)
+    ax1.set_xlim(0, 15)
+    ax2.set_xlim(0, 15)
+    ax1.set_ylim(0, 140)
+    ax2.set_ylim(0, 1.6)
+    df.plot(x='Ati', y=['qe_GB', 'qi_GB'], ax=ax1)
+    df.plot(x='Ati', y=['pfe_GB'], ax=ax2)
+    plt.show()
 
