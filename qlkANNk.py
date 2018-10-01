@@ -5,7 +5,10 @@ import scipy as sc
 import scipy.io as sio
 import os
 from itertools import chain
+from collections import OrderedDict
 from warnings import warn
+
+import pandas as pd
 
 def sigmo(x):
     #nonlinear neuron function. 
@@ -64,6 +67,9 @@ class QuaLiKiz4DNN():
     scalefac = np.array([2 , 1.45 , 1.35 , 5], ndmin=2).T
     dispfac  = np.array([3 , 1.55 , 1.65 , 7], ndmin=2).T
     feature_names = ['qx', 'smag', 'Ti_Te', 'Ati']
+    _feature_names = pd.Series(feature_names)
+    target_names = ['efeITG_GB', 'efiITG_GB', 'pfeITG_GB']
+    _target_names = pd.Series(target_names)
 
     def __init__(self, whenzero=1, zerooutpinch=0):
         """
@@ -158,6 +164,37 @@ class QuaLiKiz4DNN():
 
         return np.squeeze(qe_GB), np.squeeze(qi_GB), np.squeeze(pfe_GB)
 
+    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True, output_pandas=True, output_vars=None):
+        if output_vars is None:
+            output_vars = self._target_names
+        if safe is True:
+            input = input[self._feature_names]
+            input = {col: input[col].as_matrix() for col in input}
+        else:
+            input = {name: col for name, col in zip(self._feature_names, input.T)}
+        output = np.vstack(self.get_fluxes(**input))
+        output = clip_to_bounds(output, clip_low, clip_high, low_bound, high_bound)
+        out_dict = OrderedDict()
+        for name, out in zip(self.target_names, output):
+            if name in output_vars:
+                out_dict[name] = out
+
+        result = pd.DataFrame(out_dict)
+        if output_pandas is False:
+            result = result.as_matrix()
+        return result
+
+def clip_to_bounds(output, clip_low, clip_high, low_bound, high_bound):
+    if clip_low:
+        for ii, bound in enumerate(low_bound):
+            output[:, ii][output[:, ii] < bound] = bound
+
+    if clip_high:
+        for ii, bound in enumerate(high_bound):
+            output[:, ii][output[:, ii] > bound] = bound
+
+    return output
+
 if __name__ == '__main__':
     scann = 24
     Ati = np.array(np.linspace(2,13, scann))
@@ -166,6 +203,19 @@ if __name__ == '__main__':
     Ti_Te = np.full_like(Ati, 1.)
     nn = QuaLiKiz4DNN()
     fluxes = nn.get_fluxes(Ati, qx, smag, Ti_Te, Ate=[5])
+
+    scann = 100
+    input = pd.DataFrame()
+    input['Ati'] = np.array(np.linspace(2,13, scann))
+    input['Ti_Te']  = np.full_like(input['Ati'], 1.)
+    input['Zeffx']  = np.full_like(input['Ati'], 1.)
+    input['An']  = np.full_like(input['Ati'], 4.)
+    input['Ate']  = np.full_like(input['Ati'], 5.)
+    input['qx'] = np.full_like(input['Ati'], 0.660156)
+    input['smag']  = np.full_like(input['Ati'], 0.399902)
+    input['Nustar']  = np.full_like(input['Ati'], 0.009995)
+    input['x']  = np.full_like(input['Ati'], 0.449951)
+    nn.get_output(input)
 
     embed()
 
