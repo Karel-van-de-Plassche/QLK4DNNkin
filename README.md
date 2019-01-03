@@ -1,3 +1,5 @@
+This project moved to GitLab: https://gitlab.com/qualikiz-group/QLKNN-4Dkin
+
 This repository contains the 4D-kinetic QuaLiKiz Neural Network.
 It was used for the paper
 "Real-time-capable prediction of temperature and density profiles in a tokamak using RAPTOR and a first-principle-based transport model"
